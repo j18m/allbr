@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	"allbr/internal/config"
 	"allbr/internal/scanner"
@@ -97,14 +98,93 @@ var pingCmd = &cobra.Command{
 	},
 }
 
+var portScanCmd = &cobra.Command{
+	Use:   "port",
+	Short: "端口探测模式",
+	Long:  "探测目标IP或IP段的端口开放情况，支持HTTP服务title获取。",
+	Run: func(cmd *cobra.Command, args []string) {
+		// 获取参数
+		targetsFlag, _ := cmd.Flags().GetString("targets")
+		threadsFlag, _ := cmd.Flags().GetInt("threads")
+		portsFlag, _ := cmd.Flags().GetString("ports")
+		titleFlag, _ := cmd.Flags().GetBool("title")
+		probeOrderFlag, _ := cmd.Flags().GetString("probe-order")
+		outputFlag, _ := cmd.Flags().GetString("output")
+
+		// 设置默认值
+		if threadsFlag <= 0 {
+			threadsFlag = 100 // 默认100线程
+		}
+		if probeOrderFlag == "" {
+			probeOrderFlag = "port" // 默认优先探测多个IP的同一端口
+		}
+
+		// 解析目标
+		targets := config.ParseTargets(targetsFlag)
+		if len(targets) == 0 {
+			fmt.Println("请指定有效的目标IP或IP段")
+			return
+		}
+
+		// 解析端口
+		ports := config.ParsePorts(portsFlag)
+		if len(ports) == 0 {
+			fmt.Println("请指定有效的端口")
+			return
+		}
+
+		// 执行端口探测
+		fmt.Printf("开始端口探测，目标数量: %d, 端口数量: %d\n", len(targets), len(ports))
+		results := utils.ScanPorts(targets, ports, threadsFlag, titleFlag, probeOrderFlag)
+
+		// 输出结果
+		fmt.Printf("\n端口探测完成\n")
+		fmt.Printf("总扫描结果数量: %d\n", len(results))
+
+		// 保存结果
+		if len(results) > 0 {
+			resultFile, fileType, err := utils.InitResultFile(outputFlag)
+			if err != nil {
+				log.Printf("初始化结果文件失败: %v\n", err)
+			} else {
+				defer resultFile.Close()
+				for _, result := range results {
+					if fileType == "csv" {
+						// CSV格式写入
+						writer := csv.NewWriter(resultFile)
+						writer.Write([]string{result.Host, strconv.Itoa(result.Port), result.Status, result.Title})
+						writer.Flush()
+					} else {
+						// TXT格式写入
+						if result.Title != "" {
+							fmt.Fprintf(resultFile, "%s:%d - %s (%s)\n", result.Host, result.Port, result.Status, result.Title)
+						} else {
+							fmt.Fprintf(resultFile, "%s:%d - %s\n", result.Host, result.Port, result.Status)
+						}
+					}
+				}
+				// 打印正确的结果文件路径
+				if outputFlag != "" {
+					log.Printf("探测结果已保存到: %s\n", outputFlag)
+				} else {
+					log.Printf("探测结果已保存到: %s\n", utils.GetResultFilePath())
+				}
+			}
+		}
+	},
+}
+
 func main() {
 	// 添加共享的命令行参数
 	addCommonFlags(brCmd)
 	addCommonFlags(pingCmd)
+	addPortScanFlags(portScanCmd)
+	addBrFlags(brCmd)
 
 	// 添加子命令
 	rootCmd.AddCommand(brCmd)
 	rootCmd.AddCommand(pingCmd)
+	rootCmd.AddCommand(portScanCmd)
 
 	// 执行根命令
 	if err := rootCmd.Execute(); err != nil {
@@ -117,8 +197,20 @@ func main() {
 func addCommonFlags(cmd *cobra.Command) {
 	cmd.Flags().StringP("targets", "t", "", "目标IP或IP段，多个用逗号分隔，或使用文件路径，支持CIDR(192.168.1.0/24)和范围(192.168.1.1-100)")
 	cmd.Flags().IntP("threads", "n", 10, "并发线程数")
+}
 
-	// 为br命令添加额外的参数
+// addPortScanFlags 添加端口探测的命令行参数
+func addPortScanFlags(cmd *cobra.Command) {
+	cmd.Flags().StringP("targets", "t", "", "目标IP或IP段，多个用逗号分隔，或使用文件路径(如file:///tmp/ip.txt)，支持CIDR和范围表示")
+	cmd.Flags().IntP("threads", "n", 100, "并发线程数，默认100")
+	cmd.Flags().StringP("ports", "p", "", "要探测的端口，多个用逗号分隔，支持范围(如80-100)")
+	cmd.Flags().BoolP("title", "T", false, "是否获取HTTP服务的标题")
+	cmd.Flags().StringP("probe-order", "o", "port", "探测顺序，port(优先同一端口)或ip(优先同一IP)")
+	cmd.Flags().StringP("output", "O", "", "输出文件路径，支持.csv和.txt格式")
+}
+
+// addBrFlags 为br命令添加额外的参数
+func addBrFlags(cmd *cobra.Command) {
 	if cmd.Use == "br" {
 		cmd.Flags().StringP("service", "s", "ssh", "服务类型: ssh, mysql, ftp, rdp, ldap, oracle, mongodb, redis")
 		cmd.Flags().IntP("port", "p", 0, "目标端口(0=使用服务默认端口)")

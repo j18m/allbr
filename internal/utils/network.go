@@ -1,14 +1,20 @@
 package utils
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os/exec"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 )
 
 // FilterAliveHosts 过滤存活主机
@@ -163,6 +169,176 @@ func portCheckWorker(jobs <-chan string, results chan<- string, port int, wg *sy
 			results <- "" // 发送空字符串表示端口不开放
 		}
 	}
+}
+
+// PortScanResult 端口探测结果结构体
+type PortScanResult struct {
+	Host   string
+	Port   int
+	Status string
+	Title  string
+}
+
+// ScanPorts 执行端口扫描
+func ScanPorts(targets []string, ports []int, threads int, getTitle bool, probeOrder string) []PortScanResult {
+	var results []PortScanResult
+	var wg sync.WaitGroup
+	var resultMutex sync.Mutex
+
+	// 创建任务通道
+	jobs := make(chan struct {
+		host string
+		port int
+	}, len(targets)*len(ports))
+
+	// 启动工作线程
+	for i := 0; i < threads; i++ {
+		wg.Add(1)
+		go portScanWorker(jobs, &results, &resultMutex, getTitle, &wg)
+	}
+
+	// 发送任务，根据探测顺序决定发送方式
+	if probeOrder == "ip" {
+		// 优先探测同一个IP的多个端口
+		for _, host := range targets {
+			for _, port := range ports {
+				jobs <- struct {
+					host string
+					port int
+				}{host, port}
+			}
+		}
+	} else {
+		// 优先探测多个IP的同一个端口（默认）
+		for _, port := range ports {
+			for _, host := range targets {
+				jobs <- struct {
+					host string
+					port int
+				}{host, port}
+			}
+		}
+	}
+
+	close(jobs)
+	wg.Wait()
+
+	return results
+}
+
+// portScanWorker 端口扫描工作线程
+func portScanWorker(jobs <-chan struct {
+	host string
+	port int
+}, results *[]PortScanResult, resultMutex *sync.Mutex, getTitle bool, wg *sync.WaitGroup) {
+	defer wg.Done()
+
+	for job := range jobs {
+		status := "closed"
+		title := ""
+
+		// 检查端口是否开放
+		if IsPortOpen(job.host, job.port, 2*time.Second) {
+			status = "open"
+
+			// 如果需要获取标题且是HTTP服务，尝试获取标题
+			if getTitle && (job.port == 80 || job.port == 443) {
+				scheme := "http"
+				if job.port == 443 {
+					scheme = "https"
+				}
+				title = GetHTTPTitle(fmt.Sprintf("%s://%s:%d", scheme, job.host, job.port))
+			} else if getTitle {
+				// 尝试HTTP和HTTPS协议
+				title = GetHTTPTitle(fmt.Sprintf("http://%s:%d", job.host, job.port))
+				if title == "" {
+					title = GetHTTPTitle(fmt.Sprintf("https://%s:%d", job.host, job.port))
+				}
+			}
+
+			// 输出结果到控制台
+			if title != "" {
+				fmt.Printf("[PORT] 开放: %s:%d - %s (%s)\n", job.host, job.port, status, title)
+			} else {
+				fmt.Printf("[PORT] 开放: %s:%d - %s\n", job.host, job.port, status)
+			}
+
+			// 添加结果到列表
+			resultMutex.Lock()
+			*results = append(*results, PortScanResult{
+				Host:   job.host,
+				Port:   job.port,
+				Status: status,
+				Title:  title,
+			})
+			resultMutex.Unlock()
+		}
+	}
+}
+
+// GetHTTPTitle 获取HTTP服务的标题
+func GetHTTPTitle(url string) string {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	// 读取响应内容的前10KB来查找标题
+	reader := bufio.NewReader(resp.Body)
+	body, _ := io.ReadAll(io.LimitReader(reader, 10240))
+	
+	// 尝试使用UTF-8或GBK编码解码内容
+	bodyStr := tryDecodeUTF8(body)
+
+	// 使用正则表达式查找标题
+	titleRegex := regexp.MustCompile(`<title[^>]*>(.*?)</title>`)
+	match := titleRegex.FindStringSubmatch(bodyStr)
+	if len(match) > 1 {
+		// 清理标题
+		title := strings.TrimSpace(match[1])
+		title = strings.ReplaceAll(title, "\n", "")
+		title = strings.ReplaceAll(title, "\r", "")
+		title = strings.ReplaceAll(title, "\t", "")
+		return title
+	}
+
+	return ""
+}
+
+// tryDecodeUTF8 尝试使用UTF-8或GBK编码解码内容
+func tryDecodeUTF8(body []byte) string {
+	// 首先尝试使用UTF-8
+	bodyStr := string(body)
+	
+	// 如果包含乱码，尝试使用GBK
+	if containsGarbledText(bodyStr) {
+		decoder := simplifiedchinese.GBK.NewDecoder()
+		if gbkBody, err := decoder.Bytes(body); err == nil {
+			bodyStr = string(gbkBody)
+		}
+	}
+	
+	return bodyStr
+}
+
+// containsGarbledText 检查字符串是否包含乱码
+func containsGarbledText(s string) bool {
+	// 检查是否包含典型的乱码字符
+	garbledPatterns := []string{"鐢ㄦ埛", "鎿嶄綔", "鏁版嵁", "缃戠粶", "瑕佹眰"}
+	for _, pattern := range garbledPatterns {
+		if strings.Contains(s, pattern) {
+			return true
+		}
+	}
+	return false
 }
 
 // ExpandIPRange 扩展：支持IP段解析

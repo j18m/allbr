@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -173,6 +174,13 @@ func ParseTargets(input string) []string {
 		return []string{}
 	}
 
+	// 支持文件输入
+	if strings.HasPrefix(input, "file://") {
+		filePath := strings.TrimPrefix(input, "file://")
+		lines := ReadFile(filePath)
+		return ExpandTargetList(lines)
+	}
+
 	// 如果是文件
 	if _, err := os.Stat(input); err == nil {
 		lines := ReadFile(input)
@@ -189,7 +197,68 @@ func ParseTargets(input string) []string {
 	return ExpandTargetList([]string{strings.TrimSpace(input)})
 }
 
-// ExpandTargetList 扩展目标列表，处理CIDR和IP范围
+// ParsePorts 解析端口参数，支持单个端口、端口范围和逗号分隔的多个端口
+func ParsePorts(portsFlag string) []int {
+	var ports []int
+
+	// 支持文件输入
+	if strings.HasPrefix(portsFlag, "file://") {
+		filePath := strings.TrimPrefix(portsFlag, "file://")
+		content, err := os.ReadFile(filePath)
+		if err != nil {
+			log.Printf("读取端口文件失败: %v", err)
+			return ports
+		}
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line != "" {
+				parsePortLine(line, &ports)
+			}
+		}
+	} else {
+		// 直接解析端口字符串
+		parsePortLine(portsFlag, &ports)
+	}
+
+	return ports
+}
+
+// parsePortLine 解析单行端口字符串
+func parsePortLine(line string, ports *[]int) {
+	// 处理逗号分隔的端口
+	portSegments := strings.Split(line, ",")
+	for _, segment := range portSegments {
+		segment = strings.TrimSpace(segment)
+		if segment == "" {
+			continue
+		}
+
+		// 处理端口范围
+		if strings.Contains(segment, "-") {
+			parts := strings.Split(segment, "-")
+			if len(parts) != 2 {
+				continue
+			}
+			start, err1 := strconv.Atoi(strings.TrimSpace(parts[0]))
+			end, err2 := strconv.Atoi(strings.TrimSpace(parts[1]))
+			if err1 != nil || err2 != nil || start > end || start < 1 || end > 65535 {
+				continue
+			}
+			for port := start; port <= end; port++ {
+				*ports = append(*ports, port)
+			}
+		} else {
+			// 处理单个端口
+			port, err := strconv.Atoi(segment)
+			if err == nil && port >= 1 && port <= 65535 {
+				*ports = append(*ports, port)
+			}
+		}
+	}
+}
+
+// ExpandTargetList 扩展目标列表，支持CIDR、IP段和文件输入
 func ExpandTargetList(targets []string) []string {
 	var expandedTargets []string
 

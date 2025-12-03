@@ -43,12 +43,8 @@ func InitResultFile(outputPath string) (*os.File, string, error) {
 		}
 	}
 
-	// 检查文件是否存在
-	_, err := os.Stat(filePath)
-	fileMode := os.O_WRONLY | os.O_APPEND
-	if os.IsNotExist(err) {
-		fileMode |= os.O_CREATE
-	}
+	// 总是创建新文件，避免结果重复
+	fileMode := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 
 	// 打开文件
 	file, err := os.OpenFile(filePath, fileMode, 0644)
@@ -56,27 +52,18 @@ func InitResultFile(outputPath string) (*os.File, string, error) {
 		return nil, "", err
 	}
 
-	// 如果是新文件，写入文件头
-	if os.IsNotExist(err) {
-		if fileType == "csv" {
-			// CSV格式写入标题行
-			writer := csv.NewWriter(file)
-			writer.Write([]string{"服务类型", "目标IP", "端口", "用户名", "密码", "时间"})
-			writer.Flush()
-		} else {
-			// TXT格式写入文件头
-			header := fmt.Sprintf("# 多服务暴力破解扫描结果\n")
-			header += fmt.Sprintf("# 生成时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
-			header += fmt.Sprintf("# 格式: 服务类型 目标IP:端口 用户名 密码\n\n")
-			file.WriteString(header)
-		}
+	// 写入文件头（由于总是创建新文件，不需要检查文件是否存在）
+	if fileType == "csv" {
+		// CSV格式写入标题行
+		writer := csv.NewWriter(file)
+		// 写入端口扫描专用的标题行
+		writer.Write([]string{"Host", "Port", "Status", "Title"})
+		writer.Flush()
 	} else {
-		// 文件存在，添加分隔符（仅TXT格式）
-		if fileType == "txt" {
-			separator := fmt.Sprintf("\n%s 新的扫描会话开始 %s\n",
-				strings.Repeat("=", 20), time.Now().Format("2006-01-02 15:04:05"))
-			file.WriteString(separator)
-		}
+		// TXT格式写入文件头
+		header := fmt.Sprintf("# 扫描结果\n")
+		header += fmt.Sprintf("# 生成时间: %s\n", time.Now().Format("2006-01-02 15:04:05"))
+		file.WriteString(header)
 	}
 
 	return file, fileType, nil
