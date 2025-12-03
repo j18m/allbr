@@ -86,18 +86,23 @@ func ParseFlags() *types.Config {
 	flag.IntVar(&port, "port", 0, "目标端口(0=使用服务默认端口)")
 	flag.StringVar(&usernames, "u", "", "用户名，多个用逗号分隔，或使用文件路径")
 	flag.StringVar(&usernames, "usernames", "", "用户名，多个用逗号分隔，或使用文件路径")
-	flag.StringVar(&passwords, "P", "", "密码，多个用逗号分隔，或使用文件路径")
+	flag.StringVar(&passwords, "w", "", "密码，多个用逗号分隔，或使用文件路径")
+	flag.StringVar(&passwords, "P", "", "密码，多个用逗号分隔，或使用文件路径(兼容旧版本)")
 	flag.StringVar(&passwords, "passwords", "", "密码，多个用逗号分隔，或使用文件路径")
 	flag.StringVar(&strategy, "strategy", "user-first", "扫描策略: user-first(优先用户名) 或 pass-first(优先密码)")
 	flag.IntVar(&threads, "n", 10, "并发线程数")
 	flag.IntVar(&threads, "threads", 10, "并发线程数")
+	flag.IntVar(&timeout, "o", 5, "连接超时时间(秒)")
 	flag.IntVar(&timeout, "timeout", 5, "连接超时时间(秒)")
-	flag.StringVar(&outputFile, "o", "", "输出文件")
+	flag.StringVar(&outputFile, "O", "", "输出文件")
+	flag.StringVar(&outputFile, "o", "", "输出文件(兼容旧版本)")
 	flag.StringVar(&outputFile, "output", "", "输出文件")
-	flag.BoolVar(&pingFirst, "ping", true, "先进行ping存活检测")
+	flag.BoolVar(&pingFirst, "i", true, "先进行ping存活检测")
+	flag.BoolVar(&pingFirst, "ping", true, "先进行ping存活检测(兼容旧版本)")
 	flag.BoolVar(&pingFirst, "ping-first", true, "先进行ping存活检测")
+	flag.BoolVar(&portCheck, "c", true, "先进行端口开放检测")
 	flag.BoolVar(&portCheck, "port-check", true, "先进行端口开放检测")
-	flag.BoolVar(&portCheck, "pc", true, "先进行端口开放检测")
+	flag.BoolVar(&portCheck, "pc", true, "先进行端口开放检测(兼容旧版本)")
 
 	// 检查是否有命令行参数
 	if len(os.Args) == 1 {
@@ -225,7 +230,17 @@ func ParseInput(input, inputType string) []string {
 		return []string{}
 	}
 
-	// 如果是文件
+	// 如果是file://前缀的文件路径
+	if strings.HasPrefix(input, "file://") {
+		filePath := strings.TrimPrefix(input, "file://")
+		// 处理Windows路径格式（如果前缀是/开头，去掉/）
+		if len(filePath) > 1 && filePath[0] == '/' && (filePath[1] >= 'A' && filePath[1] <= 'Z' || filePath[1] >= 'a' && filePath[1] <= 'z') && filePath[2] == ':' {
+			filePath = filePath[1:]
+		}
+		return ReadFile(filePath)
+	}
+
+	// 如果是普通文件路径（向后兼容）
 	if _, err := os.Stat(input); err == nil {
 		return ReadFile(input)
 	}

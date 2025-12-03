@@ -17,6 +17,7 @@ import (
 var (
 	resultFile     *os.File
 	resultFileLock sync.Mutex
+	fileType       string
 	ctx            = context.Background()
 )
 
@@ -27,7 +28,7 @@ func StartScan(config *types.Config) []types.ScanResult {
 
 	// 初始化结果文件
 	var err error
-	resultFile, err = utils.InitResultFile()
+	resultFile, fileType, err = utils.InitResultFile(config.OutputFile)
 	if err != nil {
 		log.Fatal("初始化结果文件失败:", err)
 	}

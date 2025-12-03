@@ -47,17 +47,22 @@ allbr [command] [flags]
 
 ### 1. 单个目标SSH暴力破解
 ```bash
-./allbr br -t 192.168.1.100 -s ssh -u root -w passwords.txt -T 10
+./allbr br -t 192.168.1.100 -s ssh -u root -w file:///tmp/passwords.txt -n 10
 ```
 
 ### 2. 多个目标MySQL暴力破解（带ping和端口检测）
 ```bash
-./allbr br -t 192.168.1.100,192.168.1.101 -s mysql -u admin,root -w passwords.txt --ping-first --port-check
+./allbr br -t 192.168.1.100,192.168.1.101 -s mysql -u admin,root -w file:///tmp/passwords.txt --ping-first --port-check
 ```
 
 ### 3. IP段Redis暴力破解（使用密码优先策略）
 ```bash
-./allbr br -t 192.168.1.0/24 -s redis -u default -w passwords.txt --strategy pass-first -T 20
+./allbr br -t 192.168.1.0/24 -s redis -u default -w file:///tmp/passwords.txt --strategy pass-first -n 20
+```
+
+### 4. 保存结果到CSV文件
+```bash
+./allbr br -t 192.168.1.100 -s ssh -u admin -w password123 -O result.csv
 ```
 
 ## 主机存活检测示例
@@ -90,13 +95,13 @@ allbr [command] [flags]
 | --targets | -t | 目标IP、IP段或文件 | - |
 | --service | -s | 服务类型（ssh/mysql/ftp/rdp/ldap/oracle/mongodb/redis） | ssh |
 | --port | -p | 服务端口 | 服务默认端口 |
-| --usernames | -u | 用户名或用户名文件 | 默认用户名 |
-| --passwords | -w | 密码或密码文件 | 默认密码 |
-| --threads | -T | 线程数 | 5 |
+| --usernames | -u | 用户名，多个用逗号分隔，或使用`file:///path/to/file.txt`格式的文件路径 | 默认用户名 |
+| --passwords | -w | 密码，多个用逗号分隔，或使用`file:///path/to/file.txt`格式的文件路径 | 默认密码 |
+| --threads | -n | 线程数 | 10 |
 | --timeout | -o | 超时时间（秒） | 5 |
-| --output | -O | 结果输出文件 | multibrute.txt |
-| --ping-first | - | 先进行ping检测 | false |
-| --port-check | - | 进行端口开放检测 | false |
+| --output | -O | 结果输出文件，支持`.txt`和`.csv`格式，默认追加写入 | multibrute.txt |
+| --ping-first | -i | 先进行ping检测 | true |
+| --port-check | -c | 进行端口开放检测 | true |
 | --strategy | - | 扫描策略（user-first/pass-first） | user-first |
 
 ### 存活检测参数（ping命令）

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/csv"
 	"fmt"
 	"log"
 	"os"
@@ -74,13 +75,21 @@ var pingCmd = &cobra.Command{
 
 		// 保存结果
 		if len(aliveHosts) > 0 {
-			resultFile, err := utils.InitResultFile()
+			resultFile, fileType, err := utils.InitResultFile("")
 			if err != nil {
 				log.Printf("初始化结果文件失败: %v\n", err)
 			} else {
 				defer resultFile.Close()
 				for _, host := range aliveHosts {
-					fmt.Fprintf(resultFile, "%s\n", host)
+					if fileType == "csv" {
+						// CSV格式写入
+						writer := csv.NewWriter(resultFile)
+						writer.Write([]string{host, "alive"})
+						writer.Flush()
+					} else {
+						// TXT格式写入
+						fmt.Fprintf(resultFile, "%s\n", host)
+					}
 				}
 				log.Printf("存活主机列表已保存到: %s\n", utils.GetResultFilePath())
 			}
@@ -114,11 +123,11 @@ func addCommonFlags(cmd *cobra.Command) {
 		cmd.Flags().StringP("service", "s", "ssh", "服务类型: ssh, mysql, ftp, rdp, ldap, oracle, mongodb, redis")
 		cmd.Flags().IntP("port", "p", 0, "目标端口(0=使用服务默认端口)")
 		cmd.Flags().StringP("usernames", "u", "", "用户名，多个用逗号分隔，或使用文件路径")
-		cmd.Flags().StringP("passwords", "P", "", "密码，多个用逗号分隔，或使用文件路径")
+		cmd.Flags().StringP("passwords", "w", "", "密码，多个用逗号分隔，或使用文件路径")
 		cmd.Flags().String("strategy", "user-first", "扫描策略: user-first(优先用户名) 或 pass-first(优先密码)")
-		cmd.Flags().Int("timeout", 5, "连接超时时间(秒)")
-		cmd.Flags().StringP("output", "o", "", "输出文件")
-		cmd.Flags().Bool("ping-first", true, "先进行ping存活检测")
-		cmd.Flags().Bool("port-check", true, "先进行端口开放检测")
+		cmd.Flags().IntP("timeout", "o", 5, "连接超时时间(秒)")
+		cmd.Flags().StringP("output", "O", "", "输出文件")
+		cmd.Flags().BoolP("ping-first", "i", true, "先进行ping存活检测")
+		cmd.Flags().BoolP("port-check", "c", true, "先进行端口开放检测")
 	}
 }

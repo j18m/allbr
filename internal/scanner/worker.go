@@ -60,7 +60,7 @@ func worker(config *types.Config, jobs <-chan []string, results *[]types.ScanRes
 			fmt.Printf("[SUCCESS] %s %s:%d - %s/%s\n",
 				strings.ToUpper(config.Service), target, config.Port, username, password)
 			// 实时保存成功结果
-			utils.SaveSuccessResult(resultFile, &resultFileLock, result)
+		utils.SaveSuccessResult(resultFile, &resultFileLock, fileType, result)
 		} else {
 			fmt.Printf("[FAIL] %s %s:%d - %s/%s - %s\n",
 				strings.ToUpper(config.Service), target, config.Port, username, password, result.Error)
